@@ -115,7 +115,6 @@ server.post('/urls/shorten', async (req, res) => {
 
     if ('error' in authorizationValidation) {
         res.sendStatus(401);
-        console.log(authorizationValidation.error.details);
         return;
     }
 
@@ -142,15 +141,15 @@ server.post('/urls/shorten', async (req, res) => {
 
         const {userId} = session[0];
 
-        const {rows: savedUrl} = await connection.query('SELECT * FROM urls WHERE "userId" = $1 AND url = $2;', [userId, body.url]);
+        const {rows: shortenedUrl} = await connection.query('SELECT * FROM "shortenedUrls" WHERE "userId" = $1 AND url = $2;', [userId, body.url]);
 
         let shortUrl = '';
 
-        if (savedUrl.length === 0) {
+        if (shortenedUrl.length === 0) {
             shortUrl = nanoid();
 
             await connection.query(`
-                INSERT INTO urls ("userId", url, "shortUrl") VALUES ($1, $2, $3);
+                INSERT INTO "shortenedUrls" ("userId", url, "shortUrl") VALUES ($1, $2, $3);
             `, [userId, body.url, shortUrl]);
         } else {
             shortUrl = savedUrl[0].shortUrl;
@@ -173,7 +172,7 @@ server.get('/urls/:id', async (req, res) => {
     }
 
     try {
-        const {rows} = await connection.query('SELECT * FROM urls WHERE id = $1;', [id]);
+        const {rows} = await connection.query('SELECT * FROM "shortenedUrls" WHERE id = $1;', [id]);
 
         if (rows.length === 0) {
             res.sendStatus(404);
@@ -181,6 +180,7 @@ server.get('/urls/:id', async (req, res) => {
         }
 
         delete rows[0].userId;
+        delete rows[0].visitCount;
 
         res.send(rows[0]);
     } catch {
@@ -189,6 +189,80 @@ server.get('/urls/:id', async (req, res) => {
 });
 
 server.get('/urls/open/:shortUrl', async (req, res) => {
+    const {shortUrl} = req.params;
+
+    try {
+        const {rows} = await connection.query('SELECT * FROM "shortenedUrls" WHERE "shortUrl" = $1;', [shortUrl]);
+
+        if (rows.length === 0) {
+            res.sendStatus(404);
+            return;
+        }
+
+        const {url, visitCount} = rows[0];
+
+        await connection.query('UPDATE "shortenedUrls" SET "visitCount" = $1 WHERE "shortUrl" = $2;', [visitCount + 1, shortUrl]);
+
+        res.redirect(url);
+    } catch {
+        res.sendStatus(500);
+    }
+});
+
+server.delete('/urls/:id', async (req, res) => {
+    const {headers} = req;
+
+    const authorizationSchema = joi.string().pattern(new RegExp('^Bearer [a-f0-9-]+$')).required();
+
+    const authorizationValidation = authorizationSchema.validate(headers.authorization);
+
+    if ('error' in authorizationValidation) {
+        res.sendStatus(401);
+        return;
+    }
+
+    const token = headers.authorization.replace('Bearer ', '');
+
+    try {
+        const {rows: session} = await connection.query('SELECT * FROM sessions WHERE token = $1;', [token]);
+
+        if (session.length === 0) {
+            res.sendStatus(401);
+            return;
+        }
+
+        const {userId} = session[0];
+
+        const {id} = req.params;
+
+        const idRegExp = new RegExp('^[1-9][0-9]*$');
+    
+        if (idRegExp.test(id) === false) {
+            res.sendStatus(404);
+            return;
+        }
+
+        const {rows: shortenedUrls} = await connection.query('SELECT * FROM "shortenedUrls" WHERE id = $1;', [id]);
+
+        if (shortenedUrls.length === 0) {
+            res.sendStatus(404);
+            return;
+        }
+
+        if (shortenedUrls[0].userId !== userId) {
+            res.sendStatus(401);
+            return;
+        }
+
+        await connection.query('DELETE FROM "shortenedUrls" WHERE id = $1;', [id]);
+
+        res.sendStatus(204);
+    } catch {
+        res.sendStatus(500);
+    }
+});
+
+server.get('/users/me', async (req, res) => {
 
 });
 
