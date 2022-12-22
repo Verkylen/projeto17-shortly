@@ -152,7 +152,7 @@ server.post('/urls/shorten', async (req, res) => {
                 INSERT INTO "shortenedUrls" ("userId", url, "shortUrl") VALUES ($1, $2, $3);
             `, [userId, body.url, shortUrl]);
         } else {
-            shortUrl = savedUrl[0].shortUrl;
+            shortUrl = shortenedUrl[0].shortUrl;
         }
 
         res.status(201).send({shortUrl});
@@ -263,7 +263,63 @@ server.delete('/urls/:id', async (req, res) => {
 });
 
 server.get('/users/me', async (req, res) => {
+    const {headers} = req;
 
+    const authorizationSchema = joi.string().pattern(new RegExp('^Bearer [a-f0-9-]+$')).required();
+
+    const authorizationValidation = authorizationSchema.validate(headers.authorization);
+
+    if ('error' in authorizationValidation) {
+        res.sendStatus(401);
+        return;
+    }
+
+    const token = headers.authorization.replace('Bearer ', '');
+
+    try {
+        const {rows: session} = await connection.query('SELECT * FROM sessions WHERE token = $1;', [token]);
+
+        if (session.length === 0) {
+            res.sendStatus(401);
+            return;
+        }
+
+        const {rows: user} = await connection.query(`
+            SELECT users.id, users.name, SUM("shortenedUrls"."visitCount") AS "visitCount", JSON_AGG("shortenedUrls") AS "shortenedUrls"
+            FROM users JOIN "shortenedUrls"
+            ON users.id = "shortenedUrls"."userId"
+            WHERE users.id = $1
+            GROUP BY users.id;
+        `, [session[0].userId]);
+
+        user[0].shortenedUrls.forEach(shortenedUrl => delete shortenedUrl.userId);
+
+        res.send(user[0]);
+    } catch {
+        res.sendStatus(500);
+    }
+});
+
+server.get('/ranking', async ({}, res) => {
+    try {
+        const {rows} = await connection.query(`
+            SELECT
+                users.id,
+                users.name,
+                COUNT("shortenedUrls"."shortUrl") AS "linksCount",
+                SUM("shortenedUrls"."visitCount") AS "visitCount"
+            FROM users JOIN "shortenedUrls"
+            ON users.id = "shortenedUrls"."userId"
+            GROUP BY users.id
+            ORDER BY "visitCount" DESC
+            LIMIT 10;
+        `);
+
+        res.send(rows);
+    } catch {
+        res.sendStatus(500);
+        return;
+    }
 });
 
 const port = 4000;
