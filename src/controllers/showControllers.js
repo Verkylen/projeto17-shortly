@@ -1,4 +1,3 @@
-import joi from 'joi';
 import connection from '../database.js';
 
 export async function getUrlsId(req, res) {
