@@ -97,6 +97,5 @@ export async function ranking({}, res) {
         res.send(rows);
     } catch {
         res.sendStatus(500);
-        return;
     }
 }
