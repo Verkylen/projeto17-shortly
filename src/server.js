@@ -9,5 +9,5 @@ server.use(authRouter);
 server.use(showRouter);
 server.use(urlRouter);
 
-const port = 4000;
-server.listen(4000, () => console.log('Express server listening on localhost:' + port));
+const port = process.env.PORT;
+server.listen(port, () => console.log('Express server listening on localhost:' + port));
